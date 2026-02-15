@@ -8,6 +8,14 @@ import { marketingFlowProcess } from '@/data/marketing-flow';
 import ViewToggle from '@/components/ui/ViewToggle';
 import StepDetailPanel from '@/components/panels/StepDetailPanel';
 import { RecordingFlow } from '@/components/recording';
+import { ExecutionPanel } from '@/components/execution';
+import { useProcessInstance } from '@/hooks/useProcessInstance';
+import { 
+  OfflineIndicator, 
+  MobileNav, 
+  MobileMenu,
+  MobileStepDetailSheet,
+} from '@/components/mobile';
 import { 
   TrainingWizard, 
   InlineCertificationBadge,
@@ -40,6 +48,7 @@ function HomeContent() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
   const [showRecordingFlow, setShowRecordingFlow] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   
   // Training & Quiz state
@@ -50,8 +59,40 @@ function HomeContent() {
   const [certified, setCertified] = useState(false);
   const [certification, setCertification] = useState<CertificationRecord | null>(null);
   const [trainingComplete, setTrainingComplete] = useState(false);
+  const [showExecutionPanel, setShowExecutionPanel] = useState(false);
 
   const process = marketingFlowProcess;
+  
+  // Process execution
+  const { instance, timeline, loading: executionLoading, error: executionError, startProcess } = useProcessInstance();
+  
+  const handleStartProcess = async () => {
+    const result = await startProcess({
+      process_id: process.id,
+      variables: {},
+    });
+    if (result) {
+      setShowExecutionPanel(true);
+    }
+  };
+  
+  const handleCompleteStep = async (stepId: string) => {
+    if (!instance) return;
+    await fetch(`/api/execution/${instance.id}/complete-step`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step_id: stepId }),
+    });
+  };
+  
+  const handleAssignStep = async (stepId: string, assignee: string) => {
+    if (!instance) return;
+    await fetch(`/api/execution/${instance.id}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step_id: stepId, assignee }),
+    });
+  };
   const { setCurrentProcess, setCurrentStep } = useAI();
   
   // Check certification status on mount
@@ -208,6 +249,9 @@ function HomeContent() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
+      {/* Offline Indicator - PWA */}
+      <OfflineIndicator />
+
       {/* Header */}
       <header className="flex-shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <div className="px-4 py-3">
@@ -606,6 +650,60 @@ function HomeContent() {
           onClose={() => setShowRecordingFlow(false)}
         />
       )}
+
+      {/* Execution Panel */}
+      {showExecutionPanel && instance && (
+        <ExecutionPanel
+          instance={instance}
+          timeline={timeline}
+          loading={executionLoading}
+          onCompleteStep={handleCompleteStep}
+          onAssignStep={handleAssignStep}
+          onClose={() => setShowExecutionPanel(false)}
+        />
+      )}
+
+      {/* Execution Error Toast */}
+      {executionError && (
+        <div className="fixed bottom-4 right-4 px-4 py-3 rounded-lg bg-[var(--status-error)] text-white shadow-lg animate-slide-up z-50">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{executionError}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Navigation - Bottom Nav */}
+      <MobileNav
+        currentView={viewMode}
+        onViewChange={setViewMode}
+        onMenuOpen={() => setShowMobileMenu(true)}
+        onRecordOpen={() => setShowRecordingFlow(true)}
+      />
+
+      {/* Mobile Menu - Slide-in Drawer */}
+      <MobileMenu
+        isOpen={showMobileMenu}
+        onClose={() => setShowMobileMenu(false)}
+        process={process}
+        currentView={viewMode}
+        onViewChange={setViewMode}
+        completedSteps={completedSteps.size}
+        totalSteps={process.steps.length}
+      />
+
+      {/* AI Assistant - Floating Chat Bubble */}
+      <AIAssistant />
+
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        onSelectStep={handleSelectStep}
+        process={process}
+      />
     </div>
   );
 }
