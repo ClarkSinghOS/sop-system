@@ -369,7 +369,7 @@ export interface Process {
 // VIEW MODES
 // ============================================================
 
-export type ViewMode = 'flow' | 'timeline' | 'cards' | 'list' | 'checklist' | 'ai';
+export type ViewMode = 'flow' | 'timeline' | 'cards' | 'list' | 'checklist' | 'ai' | 'map';
 
 export interface ViewConfig {
   mode: ViewMode;

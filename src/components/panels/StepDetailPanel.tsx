@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ProcessStep } from '@/types/process';
+import { AutomationSuggestion, ImprovementSuggestion } from '@/components/ai';
 
 interface StepDetailPanelProps {
   step: ProcessStep | null;
@@ -214,6 +215,15 @@ export default function StepDetailPanel({ step, onClose }: StepDetailPanelProps)
                 </div>
               </div>
             )}
+
+            {/* AI Suggestions */}
+            <div className="space-y-4">
+              <AutomationSuggestion 
+                step={step} 
+                onLearnMore={() => setActiveTab('automation')}
+              />
+              <ImprovementSuggestion step={step} />
+            </div>
 
             {/* Common Mistakes */}
             {step.commonMistakes && step.commonMistakes.length > 0 && (

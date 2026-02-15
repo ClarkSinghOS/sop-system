@@ -1,23 +1,65 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ViewMode, ProcessStep } from '@/types/process';
+import { TrainingProgress, Quiz, QuizAttempt, CertificationRecord } from '@/types/training';
 import { marketingFlowProcess } from '@/data/marketing-flow';
 import ViewToggle from '@/components/ui/ViewToggle';
 import StepDetailPanel from '@/components/panels/StepDetailPanel';
 import { RecordingFlow } from '@/components/recording';
+import { 
+  TrainingWizard, 
+  InlineCertificationBadge,
+  saveTrainingProgress,
+  saveQuizAttempt,
+  saveCertification,
+  isCertified,
+  getCertification,
+} from '@/components/training';
+import { generateQuizFromProcess, QuizPlayer, QuizResults } from '@/components/quiz';
+import { AIProvider, useAI } from '@/contexts/AIContext';
+import { AIAssistant, CommandPalette } from '@/components/ai';
 
 // Dynamic import for React Flow (client-side only)
 const ProcessFlow = dynamic(() => import('@/components/flow/ProcessFlow'), { ssr: false });
 
+type AppMode = 'normal' | 'training' | 'quiz' | 'results';
+
+// Wrap the main page with AIProvider
 export default function Home() {
+  return (
+    <AIProvider initialProcess={marketingFlowProcess}>
+      <HomeContent />
+    </AIProvider>
+  );
+}
+
+function HomeContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('flow');
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
   const [showRecordingFlow, setShowRecordingFlow] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  
+  // Training & Quiz state
+  const [appMode, setAppMode] = useState<AppMode>('normal');
+  const [isPracticeMode, setIsPracticeMode] = useState(false);
+  const [currentQuiz, setCurrentQuiz] = useState<Quiz | null>(null);
+  const [lastAttempt, setLastAttempt] = useState<QuizAttempt | null>(null);
+  const [certified, setCertified] = useState(false);
+  const [certification, setCertification] = useState<CertificationRecord | null>(null);
+  const [trainingComplete, setTrainingComplete] = useState(false);
 
   const process = marketingFlowProcess;
+  const { setCurrentProcess, setCurrentStep } = useAI();
+  
+  // Check certification status on mount
+  useEffect(() => {
+    const cert = getCertification(process.id);
+    setCertified(isCertified(process.id));
+    setCertification(cert);
+  }, [process.id]);
   
   const selectedStep = useMemo(() => {
     return process.steps.find(s => s.stepId === selectedStepId) || null;
@@ -28,6 +70,141 @@ export default function Home() {
   };
 
   const progress = (completedSteps.size / process.steps.length) * 100;
+
+  // Training handlers
+  const handleStartTraining = (practiceMode: boolean = false) => {
+    setIsPracticeMode(practiceMode);
+    setAppMode('training');
+  };
+
+  const handleTrainingComplete = (trainingProgress: TrainingProgress) => {
+    if (!isPracticeMode) {
+      saveTrainingProgress(trainingProgress);
+    }
+    setTrainingComplete(true);
+    
+    // Generate quiz
+    const quiz = generateQuizFromProcess(process, {
+      questionCount: 10,
+      difficulty: 'mixed',
+    });
+    setCurrentQuiz(quiz);
+    setAppMode('quiz');
+  };
+
+  const handleExitTraining = () => {
+    setAppMode('normal');
+    setTrainingComplete(false);
+  };
+
+  // Quiz handlers
+  const handleStartQuiz = () => {
+    const quiz = generateQuizFromProcess(process, {
+      questionCount: 10,
+      difficulty: 'mixed',
+    });
+    setCurrentQuiz(quiz);
+    setAppMode('quiz');
+  };
+
+  const handleQuizComplete = (attempt: QuizAttempt) => {
+    setLastAttempt(attempt);
+    if (!isPracticeMode) {
+      saveQuizAttempt(process.id, attempt);
+    }
+    setAppMode('results');
+  };
+
+  const handleExitQuiz = () => {
+    const confirmExit = window.confirm('Are you sure you want to exit the quiz? Your progress will be lost.');
+    if (confirmExit) {
+      setAppMode('normal');
+      setCurrentQuiz(null);
+    }
+  };
+
+  const handleRetakeQuiz = () => {
+    const quiz = generateQuizFromProcess(process, {
+      questionCount: 10,
+      difficulty: 'mixed',
+    });
+    setCurrentQuiz(quiz);
+    setLastAttempt(null);
+    setAppMode('quiz');
+  };
+
+  const handleCertify = () => {
+    if (!lastAttempt) return;
+
+    // Determine badge type based on score
+    let badgeType: 'bronze' | 'silver' | 'gold' | 'platinum' = 'bronze';
+    if (lastAttempt.score >= 95) badgeType = 'platinum';
+    else if (lastAttempt.score >= 85) badgeType = 'gold';
+    else if (lastAttempt.score >= 75) badgeType = 'silver';
+
+    const cert: CertificationRecord = {
+      id: Math.random().toString(36).substring(2, 11),
+      userId: 'current-user',
+      processId: process.id,
+      processName: process.name,
+      certifiedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year
+      quizScore: lastAttempt.score,
+      trainingDuration: lastAttempt.timeSpentSeconds,
+      badgeType,
+    };
+
+    saveCertification(cert);
+    setCertified(true);
+    setCertification(cert);
+    setAppMode('normal');
+    setTrainingComplete(false);
+    setCurrentQuiz(null);
+    setLastAttempt(null);
+  };
+
+  const handleCloseResults = () => {
+    setAppMode('normal');
+    setCurrentQuiz(null);
+    setLastAttempt(null);
+    setTrainingComplete(false);
+  };
+
+  // Render training wizard
+  if (appMode === 'training') {
+    return (
+      <TrainingWizard
+        process={process}
+        onComplete={handleTrainingComplete}
+        onExit={handleExitTraining}
+        isPracticeMode={isPracticeMode}
+      />
+    );
+  }
+
+  // Render quiz player
+  if (appMode === 'quiz' && currentQuiz) {
+    return (
+      <QuizPlayer
+        quiz={currentQuiz}
+        onComplete={handleQuizComplete}
+        onExit={handleExitQuiz}
+      />
+    );
+  }
+
+  // Render quiz results
+  if (appMode === 'results' && currentQuiz && lastAttempt) {
+    return (
+      <QuizResults
+        quiz={currentQuiz}
+        attempt={lastAttempt}
+        onRetake={handleRetakeQuiz}
+        onClose={handleCloseResults}
+        onCertify={handleCertify}
+      />
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -46,6 +223,12 @@ export default function Home() {
                   <span className="text-xs px-2 py-0.5 rounded bg-[var(--accent-blue)]/20 text-[var(--accent-blue)]">
                     {process.status}
                   </span>
+                  {/* Certification Badge */}
+                  <InlineCertificationBadge 
+                    certified={certified} 
+                    badgeType={certification?.badgeType}
+                    onClick={() => certified ? null : handleStartTraining()}
+                  />
                 </div>
                 <h1 className="text-xl font-display font-bold text-[var(--text-primary)] mt-1">
                   {process.name}
@@ -56,8 +239,8 @@ export default function Home() {
             {/* Center: View Toggle */}
             <ViewToggle currentView={viewMode} onViewChange={setViewMode} />
 
-            {/* Right: Quick Stats + Record Button */}
-            <div className="flex items-center gap-6 text-sm">
+            {/* Right: Quick Stats + Buttons */}
+            <div className="flex items-center gap-4 text-sm">
               <div className="text-center">
                 <p className="text-[var(--text-tertiary)] text-xs">Steps</p>
                 <p className="font-semibold text-[var(--text-primary)]">{process.steps.length}</p>
@@ -70,13 +253,77 @@ export default function Home() {
                 <p className="text-[var(--text-tertiary)] text-xs">Owner</p>
                 <p className="font-semibold text-[var(--text-primary)]">{process.owner.name}</p>
               </div>
-              <button
-                onClick={() => setShowRecordingFlow(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors"
-              >
-                <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                Record
-              </button>
+              
+              {/* Training & Quiz Buttons */}
+              <div className="flex items-center gap-2 ml-2 pl-4 border-l border-[var(--border-subtle)]">
+                {/* Practice Mode Toggle */}
+                <div className="relative group">
+                  <button
+                    onClick={() => handleStartTraining(true)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--accent-purple)]/50 text-[var(--accent-purple)] hover:bg-[var(--accent-purple)]/10 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Practice
+                  </button>
+                </div>
+
+                {/* Start Training Button */}
+                <button
+                  onClick={() => handleStartTraining(false)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[var(--accent-lime)] to-[var(--accent-cyan)] text-black font-medium hover:opacity-90 transition-opacity"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  Start Training
+                </button>
+
+                {/* Take Quiz Button - Only show if certified or training complete */}
+                {(certified || trainingComplete) && (
+                  <button
+                    onClick={handleStartQuiz}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent-purple)] text-white font-medium hover:opacity-90 transition-opacity"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    {certified ? 'Retake Quiz' : 'Take Quiz'}
+                  </button>
+                )}
+
+                {/* Start Process Button */}
+                <button
+                  onClick={handleStartProcess}
+                  disabled={executionLoading || !!instance}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent-lime)] text-black font-medium hover:bg-[var(--accent-lime)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {instance ? 'Running...' : 'Start Process'}
+                </button>
+                {instance && (
+                  <button
+                    onClick={() => setShowExecutionPanel(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent-cyan)]/20 text-[var(--accent-cyan)] font-medium hover:bg-[var(--accent-cyan)]/30 transition-colors"
+                  >
+                    <div className="w-2 h-2 rounded-full bg-[var(--accent-cyan)] animate-pulse" />
+                    View Progress
+                  </button>
+                )}
+
+                {/* Record Button */}
+                <button
+                  onClick={() => setShowRecordingFlow(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors"
+                >
+                  <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  Record
+                </button>
+              </div>
             </div>
           </div>
         </div>
