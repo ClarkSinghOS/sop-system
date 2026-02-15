@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Lazy initialization to avoid build-time errors
+let supabase: SupabaseClient | null = null;
+
+function getSupabase() {
+  if (!supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!url || !key) {
+      throw new Error('Supabase configuration missing');
+    }
+    
+    supabase = createClient(url, key);
+  }
+  return supabase;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,8 +35,11 @@ export async function POST(request: NextRequest) {
     // Convert file to buffer
     const buffer = Buffer.from(await video.arrayBuffer());
 
+    // Get Supabase client
+    const sb = getSupabase();
+
     // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
+    const { data, error } = await sb.storage
       .from('sop-recordings')
       .upload(filename, buffer, {
         contentType: video.type || 'video/webm',
@@ -44,12 +59,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Get public URL
-    const { data: urlData } = supabase.storage
+    const { data: urlData } = sb.storage
       .from('sop-recordings')
       .getPublicUrl(filename);
 
     // Save metadata to database (optional)
-    const { error: dbError } = await supabase
+    const { error: dbError } = await sb
       .from('recordings')
       .insert({
         filename,
