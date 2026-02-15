@@ -6,6 +6,7 @@ import { ViewMode, ProcessStep } from '@/types/process';
 import { marketingFlowProcess } from '@/data/marketing-flow';
 import ViewToggle from '@/components/ui/ViewToggle';
 import StepDetailPanel from '@/components/panels/StepDetailPanel';
+import { RecordingFlow } from '@/components/recording';
 
 // Dynamic import for React Flow (client-side only)
 const ProcessFlow = dynamic(() => import('@/components/flow/ProcessFlow'), { ssr: false });
@@ -14,6 +15,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>('flow');
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
+  const [showRecordingFlow, setShowRecordingFlow] = useState(false);
 
   const process = marketingFlowProcess;
   
@@ -54,7 +56,7 @@ export default function Home() {
             {/* Center: View Toggle */}
             <ViewToggle currentView={viewMode} onViewChange={setViewMode} />
 
-            {/* Right: Quick Stats */}
+            {/* Right: Quick Stats + Record Button */}
             <div className="flex items-center gap-6 text-sm">
               <div className="text-center">
                 <p className="text-[var(--text-tertiary)] text-xs">Steps</p>
@@ -68,6 +70,13 @@ export default function Home() {
                 <p className="text-[var(--text-tertiary)] text-xs">Owner</p>
                 <p className="font-semibold text-[var(--text-primary)]">{process.owner.name}</p>
               </div>
+              <button
+                onClick={() => setShowRecordingFlow(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors"
+              >
+                <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                Record
+              </button>
             </div>
           </div>
         </div>
@@ -338,6 +347,18 @@ export default function Home() {
           </span>
         </div>
       </footer>
+
+      {/* Recording Flow Modal */}
+      {showRecordingFlow && (
+        <RecordingFlow
+          onStepsGenerated={(steps) => {
+            console.log('New steps from recording:', steps);
+            // TODO: Add steps to process
+            setShowRecordingFlow(false);
+          }}
+          onClose={() => setShowRecordingFlow(false)}
+        />
+      )}
     </div>
   );
 }
