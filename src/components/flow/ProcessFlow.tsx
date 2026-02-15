@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import ReactFlow, {
+import {
+  ReactFlow,
+  ReactFlowProvider,
   Node,
   Edge,
   Controls,
@@ -11,8 +13,8 @@ import ReactFlow, {
   useEdgesState,
   BackgroundVariant,
   ConnectionLineType,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 
 import ProcessNode from './ProcessNode';
 import { ProcessStep } from '@/types/process';
@@ -99,6 +101,7 @@ export default function ProcessFlow({ steps, selectedStepId, onSelectStep }: Pro
 
   return (
     <div className="h-full w-full">
+      <ReactFlowProvider>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -131,6 +134,7 @@ export default function ProcessFlow({ steps, selectedStepId, onSelectStep }: Pro
           style={{ background: 'var(--bg-elevated)' }}
         />
       </ReactFlow>
+      </ReactFlowProvider>
     </div>
   );
 }
